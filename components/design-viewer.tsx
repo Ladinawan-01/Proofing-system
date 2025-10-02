@@ -14,6 +14,8 @@ import {
   Trash2,
   Undo,
   Edit2,
+  PenTool,
+  Droplets,
 } from "lucide-react";
 import { saveComment, getCommentsByFile, StoredComment } from "@/lib/storage";
 import { WelcomeModal } from "./welcome-modal";
@@ -29,6 +31,7 @@ interface DesignViewerProps {
   designItems: DesignItem[];
   reviewId: number;
   projectName: string;
+  hideApprovalButtons?: boolean; // Add this new prop
 }
 
 interface Comment {
@@ -45,6 +48,7 @@ export function DesignViewer({
   designItems,
   reviewId,
   projectName,
+  hideApprovalButtons = false,
 }: DesignViewerProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [comments, setComments] = useState<Record<number, Comment[]>>({});
@@ -265,7 +269,7 @@ export function DesignViewer({
             <div key={item.id} className="flex flex-col items-center gap-2">
               <button
                 onClick={() => setSelectedIndex(index)}
-                className={`w-32 h-32 rounded overflow-hidden border-2 transition-all ${
+                className={`w-32 h-20 rounded overflow-hidden border-2 transition-all ${
                   selectedIndex === index
                     ? "border-[#fdb913] ring-2 ring-[#fdb913]/50"
                     : "border-neutral-700 hover:border-neutral-600"
@@ -275,7 +279,7 @@ export function DesignViewer({
                   src={item.file_url || "/placeholder.svg"}
                   alt={item.file_name}
                   width={128}
-                  height={128}
+                  height={80}
                   className="w-full h-full object-cover"
                 />
               </button>
@@ -284,28 +288,30 @@ export function DesignViewer({
           ))}
         </div>
 
-        {/* Action Buttons - Removed Add Annotations button */}
-        <div className="flex flex-col gap-3 min-w-[280px]">
-          <button className="w-full px-6 py-3.5 bg-transparent border-2 border-[#fdb913] text-[#fdb913] font-bold rounded hover:bg-[#fdb913] hover:text-black transition-all uppercase tracking-wide text-sm">
-            Approve Project
-          </button>
-          <button className="w-full px-6 py-3.5 bg-transparent border-2 border-white text-white font-bold rounded hover:bg-white hover:text-black transition-all uppercase tracking-wide text-sm">
-            Request Revisions
-          </button>
-        </div>
+        {/* Action Buttons - Conditionally render based on hideApprovalButtons prop */}
+        {!hideApprovalButtons && (
+          <div className="flex flex-col gap-3 min-w-[280px]">
+            <button className="w-full px-6 py-3.5 bg-transparent border-2 border-[#fdb913] text-[#fdb913] font-bold rounded hover:bg-[#fdb913] hover:text-black transition-all uppercase tracking-wide text-sm">
+              Approve Project
+            </button>
+            <button className="w-full px-6 py-3.5 bg-transparent border-2 border-white text-white font-bold rounded hover:bg-white hover:text-black transition-all uppercase tracking-wide text-sm">
+              Request Revisions
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Main Content Area */}
       <div className="flex-1 flex overflow-hidden">
         {/* Image Display Area with Drawing Canvas */}
-        <div className="flex-1 bg-black flex items-center justify-center p-8 overflow-auto relative">
-          <div className="relative inline-block max-w-full">
+        <div className="flex-1 bg-black flex items-center justify-center p-4 overflow-hidden relative">
+          <div className="relative w-full h-full flex items-center justify-center">
             <Image
               src={selectedItem.file_url || "/placeholder.svg"}
               alt={selectedItem.file_name}
-              width={1200}
-              height={900}
-              className="max-w-full h-auto"
+              width={800}
+              height={600}
+              className="h-[600px] w-auto object-contain"
               priority
             />
 
@@ -331,9 +337,9 @@ export function DesignViewer({
                 <Image
                   src={viewingAnnotation}
                   alt="Annotation Overlay"
-                  width={1200}
-                  height={900}
-                  className="w-full h-full object-contain"
+                  width={800}
+                  height={600}
+                  className="h-[600px] w-auto object-contain"
                 />
               </div>
             )}
@@ -439,19 +445,8 @@ export function DesignViewer({
             <div className="flex items-center gap-2">
               <div className="flex-1 flex items-center gap-3 px-4 py-2.5 bg-neutral-900/50 rounded-lg border border-neutral-700">
                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center flex-shrink-0">
-                  <svg
-                    className="w-5 h-5 text-white"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-                    />
-                  </svg>
+                  {/* Drawing Icon - Using Lucide PenTool */}
+                  <PenTool className="w-4 h-4 text-white" />
                 </div>
                 <span className="flex-1 text-white text-sm font-semibold">
                   {authorName || "Your name"}
@@ -470,26 +465,28 @@ export function DesignViewer({
             <div className="bg-neutral-800 rounded-lg border border-neutral-700 p-3">
               {/* Annotation Controls Row - WeTransfer Style */}
               <div className="flex items-center gap-2 mb-2">
-                {/* Color Swatches - WeTransfer Style */}
-                <div className="flex items-center gap-1">
-                  {colors.slice(0, 4).map((c) => (
-                    <button
-                      key={c}
-                      onClick={() => setStrokeColor(c)}
-                      className={`w-4 h-4 rounded-full border transition-transform hover:scale-110 ${
-                        strokeColor === c
-                          ? "border-white scale-110"
-                          : "border-transparent"
-                      }`}
-                      style={{ backgroundColor: c }}
-                      title={`Select ${c} color`}
-                    />
-                  ))}
-                </div>
+                {/* Color Swatches - Only show when annotation mode is active */}
+                {isAddingAnnotation && (
+                  <div className="flex items-center gap-1">
+                    {colors.slice(0, 4).map((c) => (
+                      <button
+                        key={c}
+                        onClick={() => setStrokeColor(c)}
+                        className={`w-4 h-4 rounded-full border transition-transform hover:scale-110 ${
+                          strokeColor === c
+                            ? "border-white scale-110"
+                            : "border-transparent"
+                        }`}
+                        style={{ backgroundColor: c }}
+                        title={`Select ${c} color`}
+                      />
+                    ))}
+                  </div>
+                )}
 
-                {/* Annotation Tools - WeTransfer Icons */}
+                {/* Annotation Tools - Using Lucide Icons */}
                 <div className="flex items-center gap-1 ml-2">
-                  {/* Drawing/Pen Icon - Squiggly line (white) */}
+                  {/* Drawing/Pen Icon - Using Lucide PenTool */}
                   <button
                     onClick={() => {
                       setIsAddingAnnotation(!isAddingAnnotation);
@@ -500,18 +497,21 @@ export function DesignViewer({
                         ? "bg-red-600 text-white hover:bg-red-700"
                         : "bg-neutral-700 text-white hover:bg-neutral-600"
                     }`}
-                    title={isAddingAnnotation ? "Exit annotation mode" : "Add annotation"}
+                    title={
+                      isAddingAnnotation
+                        ? "Exit annotation mode"
+                        : "Add annotation"
+                    }
                   >
-                    <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M8 3l4 8 5-5 5 15H2L8 3z"/>
-                      <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.29 1.51 4.04 3 5.5l14 0Z"/>
-                    </svg>
+                    <PenTool className="w-3 h-3" />
                   </button>
 
-                  {/* Separator Line */}
-                  <div className="w-px h-4 bg-neutral-600"></div>
+                  {/* Separator Line - Only show when colors are visible */}
+                  {isAddingAnnotation && (
+                    <div className="w-px h-4 bg-neutral-600"></div>
+                  )}
 
-                  {/* Color Drop/Pin Icon - Solid red teardrop */}
+                  {/* Color Drop/Pin Icon - Using Lucide Droplets */}
                   <button
                     onClick={() => {
                       setIsAddingAnnotation(!isAddingAnnotation);
@@ -520,28 +520,25 @@ export function DesignViewer({
                     className={`p-1.5 rounded transition-colors ${
                       isAddingAnnotation
                         ? "bg-red-600 text-white hover:bg-red-700"
-                        : "bg-neutral-700 hover:bg-neutral-600"
+                        : "bg-neutral-700 text-red-500 hover:bg-neutral-600 hover:text-red-400"
                     }`}
-                    title={isAddingAnnotation ? "Exit annotation mode" : "Add annotation"}
+                    title={
+                      isAddingAnnotation
+                        ? "Exit annotation mode"
+                        : "Add annotation"
+                    }
                   >
-                    <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
-                    </svg>
+                    <Droplets className="w-3 h-3" />
                   </button>
 
-                  {/* Trash Can Icon - Light gray outline */}
+                  {/* Trash Can Icon - Using Lucide Trash2 */}
                   {isAddingAnnotation && (
                     <button
                       onClick={handleClearDrawings}
                       className="p-1.5 rounded bg-neutral-700 text-neutral-400 hover:bg-neutral-600 hover:text-red-400 transition-colors"
                       title="Clear all drawings"
                     >
-                      <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="3,6 5,6 21,6"/>
-                        <path d="M19,6v14a2,2 0 0,1-2,2H7a2,2 0 0,1-2-2V6m3,0V4a2,2 0 0,1,2-2h4a2,2 0 0,1,2,2v2"/>
-                        <line x1="10" y1="11" x2="10" y2="17"/>
-                        <line x1="14" y1="11" x2="14" y2="17"/>
-                      </svg>
+                      <Trash2 className="w-3 h-3" />
                     </button>
                   )}
                 </div>
