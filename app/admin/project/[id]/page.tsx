@@ -122,7 +122,7 @@ export default async function EditProjectPage({
                 <Image
                   src={item.file_url || "/placeholder.svg"}
                   alt={item.file_name}
-                  width={300}
+                  width={300}       
                   height={300}
                   className="w-full h-full object-cover"
                 />
