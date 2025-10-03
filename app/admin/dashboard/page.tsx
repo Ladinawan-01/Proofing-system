@@ -1,12 +1,12 @@
-import Link from "next/link"
-import Image from "next/image"
-import { Plus } from "lucide-react"
-import { getProjects } from "@/lib/db"
-import { ProjectCard } from "@/components/project-card"
-import { SearchBar } from "@/components/search-bar"
+import Link from "next/link";
+import Image from "next/image";
+import { Plus } from "lucide-react";
+import { getProjects } from "@/lib/db";
+import { ProjectCard } from "@/components/project-card";
+import { SearchBar } from "@/components/search-bar";
 
 export default async function AdminDashboard() {
-  const projects = await getProjects(false)
+  const projects = await getProjects(false);
 
   return (
     <div className="min-h-screen bg-neutral-950">
@@ -25,15 +25,24 @@ export default async function AdminDashboard() {
             </Link>
 
             <nav className="flex items-center gap-6 text-sm">
-              <Link href="/admin/dashboard" className="text-white hover:text-brand-yellow transition-colors">
+              <Link
+                href="/admin/dashboard"
+                className="text-white hover:text-brand-yellow transition-colors"
+              >
                 DASHBOARD
               </Link>
               <span className="text-neutral-600">|</span>
-              <Link href="/admin/new-project" className="text-neutral-400 hover:text-brand-yellow transition-colors">
+              <Link
+                href="/admin/new-project"
+                className="text-neutral-400 hover:text-brand-yellow transition-colors"
+              >
                 ADD NEW PROJECT
               </Link>
               <span className="text-neutral-600">|</span>
-              <Link href="/admin/archives" className="text-neutral-400 hover:text-brand-yellow transition-colors">
+              <Link
+                href="/admin/archives"
+                className="text-neutral-400 hover:text-brand-yellow transition-colors"
+              >
                 PROJECT ARCHIVES
               </Link>
             </nav>
@@ -44,9 +53,8 @@ export default async function AdminDashboard() {
       {/* Main Content */}
       <main className="container mx-auto px-6 py-8">
         {/* Search and Add Button */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center justify-end gap-4 mb-8">
           <SearchBar />
-
           <Link
             href="/admin/new-project"
             className="flex items-center gap-2 px-6 py-3 bg-brand-yellow text-black font-semibold rounded hover:bg-brand-yellow-hover transition-colors"
@@ -77,5 +85,5 @@ export default async function AdminDashboard() {
         )}
       </main>
     </div>
-  )
+  );
 }
