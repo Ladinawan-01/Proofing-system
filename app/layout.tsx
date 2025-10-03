@@ -2,6 +2,7 @@ import type React from "react"
 import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import "./globals.css"
+import Footer from "@/components/footer"
 
 const inter = Inter({
   subsets: ["latin"],
@@ -21,7 +22,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={`${inter.variable} antialiased`}>
-      <body className="bg-neutral-950 text-white min-h-screen">{children}</body>
+      <body className="bg-neutral-950 text-white min-h-screen flex flex-col">
+        <main className="flex-1">{children}</main>
+        <Footer />
+      </body>
     </html>
   )
 }
