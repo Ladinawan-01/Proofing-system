@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server"
 
+export const dynamic = 'force-dynamic'
+
 // Mock replies storage (in production, this would be in database)
 const mockReplies: any[] = []
 

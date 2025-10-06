@@ -4,6 +4,8 @@ import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { getProjectById, createDesignItem, getDesignItemsByReviewId, deleteDesignItem, getReviewsByProjectId, createReview } from '@/lib/db'
 
+export const dynamic = 'force-dynamic'
+
 // POST - Upload file to project
 export async function POST(
   req: NextRequest,

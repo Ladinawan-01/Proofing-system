@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server"
 import { createActivityLog, prisma } from "@/lib/db"
 
+export const dynamic = 'force-dynamic'
+
 export async function PUT(request: Request) {
   try {
     const { reviewId, projectId, status, userName } = await request.json()
