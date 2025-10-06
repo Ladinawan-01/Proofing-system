@@ -99,6 +99,12 @@ model Comment {
   content      String
   type         String   @default("comment") // "comment" or "annotation"
   drawingData  String?  @map("drawing_data") // Base64 image data for annotations
+  canvasX      Float?   @map("canvas_x") // Canvas position X coordinate
+  canvasY      Float?   @map("canvas_y") // Canvas position Y coordinate
+  canvasWidth  Float?   @map("canvas_width") // Canvas width
+  canvasHeight Float?   @map("canvas_height") // Canvas height
+  imageWidth   Float?   @map("image_width") // Original image width when drawing was made
+  imageHeight  Float?   @map("image_height") // Original image height when drawing was made
   createdAt    DateTime @default(now()) @map("created_at")
 
   // Relations

@@ -15,7 +15,13 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "Newstate Branding Co. - Proofing System",
   description: "Client proofing and approval system",
-    generator: 'v0.app'
+  generator: 'v0.app',
+  viewport: {
+    width: 'device-width',
+    initialScale: 1,
+    maximumScale: 1,
+    userScalable: false
+  }
 }
 
 export default function RootLayout({

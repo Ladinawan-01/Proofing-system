@@ -26,7 +26,14 @@ export async function GET(request: NextRequest) {
 // POST - Create a new comment
 export async function POST(request: NextRequest) {
   try {
-    const { designItemId, author, content, type, drawingData } = await request.json()
+    const { 
+      designItemId, 
+      author, 
+      content, 
+      type, 
+      drawingData, 
+      canvasPosition 
+    } = await request.json()
 
     if (!designItemId || !author || !content) {
       return NextResponse.json({ error: "Design item ID, author, and content are required" }, { status: 400 })
@@ -35,10 +42,16 @@ export async function POST(request: NextRequest) {
     const comment = await prisma.comment.create({
       data: {
         designItemId: parseInt(designItemId),
-        author,
-        content,
+        author: author,
+        content: content,
         type: type || 'comment',
-        drawingData: drawingData || null
+        drawingData: drawingData || null,
+        canvasX: canvasPosition?.x || null,
+        canvasY: canvasPosition?.y || null,
+        canvasWidth: canvasPosition?.width || null,
+        canvasHeight: canvasPosition?.height || null,
+        imageWidth: canvasPosition?.imageWidth || null,
+        imageHeight: canvasPosition?.imageHeight || null
       }
     })
 

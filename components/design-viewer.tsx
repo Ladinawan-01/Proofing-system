@@ -50,6 +50,14 @@ interface Comment {
   type: "comment" | "annotation";
   hasDrawing: boolean;
   drawingData?: string; // Base64 image of the drawing
+  canvasPosition?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    imageWidth: number;
+    imageHeight: number;
+  };
   designItemId: number;
   createdAt: string;
 }
@@ -85,18 +93,19 @@ export function DesignViewer({
   const [refreshInterval, setRefreshInterval] = useState<NodeJS.Timeout | null>(null);
   const [reviewStatus, setReviewStatus] = useState<string>('PENDING');
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
-  
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+
   const { socket, isConnected } = useSocket();
+  const commentsContainerRef = useRef<HTMLDivElement>(null);
 
   // Annotation state
   const [annotationMode, setAnnotationMode] = useState(false);
   const [strokeColor, setStrokeColor] = useState("#ef4444");
   const [strokeWidth, setStrokeWidth] = useState(3);
-  const [viewingAnnotation, setViewingAnnotation] = useState<string | null>(
-    null
-  );
   const [copiedUrl, setCopiedUrl] = useState(false);
   const canvasRef = useRef<any>(null);
+  const imageRef = useRef<HTMLImageElement>(null);
+  const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
 
   const selectedItem = designItems[selectedIndex];
   const itemComments = comments[selectedItem.id] || [];
@@ -133,6 +142,14 @@ export function DesignViewer({
               type: c.type,
               hasDrawing: !!c.drawingData,
               drawingData: c.drawingData,
+              canvasPosition: c.canvasX !== null ? {
+                x: c.canvasX,
+                y: c.canvasY,
+                width: c.canvasWidth,
+                height: c.canvasHeight,
+                imageWidth: c.imageWidth,
+                imageHeight: c.imageHeight
+              } : undefined,
               designItemId: c.designItemId,
               createdAt: c.createdAt
             }));
@@ -177,7 +194,7 @@ export function DesignViewer({
       // Listen for new comments
       socket.on('comment-added', (data) => {
         console.log('New comment received via socket:', data);
-        
+
         // Add the new comment to the state
         const newComment: Comment = {
           id: data.commentId,
@@ -187,6 +204,7 @@ export function DesignViewer({
           type: data.type,
           hasDrawing: data.hasDrawing || false,
           drawingData: data.drawingData || undefined,
+          canvasPosition: data.canvasPosition,
           designItemId: data.designItemId,
           createdAt: new Date().toISOString()
         };
@@ -210,13 +228,23 @@ export function DesignViewer({
           duration: 3000,
           icon: data.hasDrawing ? '🎨' : '💬'
         });
+
+        // Auto-scroll to bottom for new comments
+        setTimeout(() => {
+          if (commentsContainerRef.current) {
+            commentsContainerRef.current.scrollTo({
+              top: commentsContainerRef.current.scrollHeight,
+              behavior: 'smooth'
+            });
+          }
+        }, 100);
       });
 
       // Listen for status updates
       socket.on('status-updated', (data) => {
         console.log('Status updated via socket:', data);
         setReviewStatus(data.status);
-        
+
         if (data.status === 'APPROVED') {
           toast.success('🎉 Project has been approved!', {
             duration: 5000,
@@ -252,6 +280,36 @@ export function DesignViewer({
     }
   }, []);
 
+  // Track image size changes for responsive annotations
+  useEffect(() => {
+    const updateImageSize = () => {
+      if (imageRef.current) {
+        const rect = imageRef.current.getBoundingClientRect();
+        setImageSize({ width: rect.width, height: rect.height });
+      }
+    };
+
+    // Initial size
+    updateImageSize();
+
+    // Listen for window resize
+    window.addEventListener('resize', updateImageSize);
+
+    // Use ResizeObserver for more accurate tracking
+    let resizeObserver: ResizeObserver | null = null;
+    if (imageRef.current && typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(updateImageSize);
+      resizeObserver.observe(imageRef.current);
+    }
+
+    return () => {
+      window.removeEventListener('resize', updateImageSize);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+    };
+  }, [selectedItem.id]);
+
   const handleWelcomeSubmit = (name: string) => {
     setAuthorName(name);
     localStorage.setItem("client_proofing_author_name", name);
@@ -267,6 +325,11 @@ export function DesignViewer({
   };
 
   const handleSubmitAnnotation = async () => {
+    if (reviewStatus === 'APPROVED') {
+      toast.error('Comments are disabled for approved projects');
+      return;
+    }
+
     if (!newCommentText.trim() || !authorName.trim()) {
       alert("Please enter your name and message");
       return;
@@ -274,6 +337,7 @@ export function DesignViewer({
 
     let hasDrawing = false;
     let drawingData = undefined;
+    let canvasPosition = null;
 
     // Check if there are any drawings and export image
     if (canvasRef.current && isAddingAnnotation) {
@@ -284,6 +348,33 @@ export function DesignViewer({
         if (hasDrawing) {
           // Export drawing as base64 image
           drawingData = await canvasRef.current.exportImage("png");
+
+          // Capture canvas position and dimensions relative to the image using percentages
+          const canvasElement = canvasRef.current.getSketchingCanvas();
+          if (canvasElement) {
+            const imageContainer = canvasElement.closest('.relative');
+            const imageElement = imageContainer?.querySelector('img');
+
+            if (imageElement) {
+              const imageRect = imageElement.getBoundingClientRect();
+              const canvasRect = canvasElement.getBoundingClientRect();
+
+              // Calculate relative positions as percentages of the image dimensions
+              const relativeX = (canvasRect.left - imageRect.left) / imageRect.width;
+              const relativeY = (canvasRect.top - imageRect.top) / imageRect.height;
+              const relativeWidth = canvasRect.width / imageRect.width;
+              const relativeHeight = canvasRect.height / imageRect.height;
+
+              canvasPosition = {
+                x: relativeX, // Store as percentage (0-1)
+                y: relativeY, // Store as percentage (0-1)
+                width: relativeWidth, // Store as percentage (0-1)
+                height: relativeHeight, // Store as percentage (0-1)
+                imageWidth: imageRect.width,
+                imageHeight: imageRect.height
+              };
+            }
+          }
         }
       } catch (e) {
         console.log("No drawings to export");
@@ -302,13 +393,14 @@ export function DesignViewer({
           author: authorName,
           content: newCommentText,
           type: isAddingAnnotation ? "annotation" : "comment",
-          drawingData: drawingData || null
+          drawingData: drawingData || null,
+          canvasPosition: canvasPosition
         }),
       });
 
       if (response.ok) {
         const savedComment = await response.json();
-        
+
         // Convert to component format
         const newComment: Comment = {
           id: savedComment.id,
@@ -327,6 +419,16 @@ export function DesignViewer({
           ...comments,
           [selectedItem.id]: [...itemComments, newComment],
         });
+
+        // Auto-scroll to bottom after adding comment
+        setTimeout(() => {
+          if (commentsContainerRef.current) {
+            commentsContainerRef.current.scrollTo({
+              top: commentsContainerRef.current.scrollHeight,
+              behavior: 'smooth'
+            });
+          }
+        }, 100);
 
         // Store drawing separately for overlay display
         if (drawingData) {
@@ -350,7 +452,8 @@ export function DesignViewer({
             type: savedComment.type,
             designItemId: savedComment.designItemId,
             hasDrawing: hasDrawing,
-            drawingData: drawingData || null
+            drawingData: drawingData || null,
+            canvasPosition: canvasPosition
           });
         }
 
@@ -377,17 +480,16 @@ export function DesignViewer({
     }
   };
 
-  const handleAnnotationClick = (comment: Comment) => {
-    if (comment.type === "annotation" && comment.drawingData) {
+  const handleCommentClick = (comment: Comment) => {
+    if (comment.hasDrawing) {
       // Toggle viewing annotation on image
-      if (viewingAnnotation === comment.drawingData) {
-        setViewingAnnotation(null);
-        setSelectedComment(null);
+      if (selectedComment === comment.id) {
+        setSelectedComment(null); // Hide annotation
       } else {
-        setViewingAnnotation(comment.drawingData);
-        setSelectedComment(comment.id);
+        setSelectedComment(comment.id); // Show annotation
       }
     } else {
+      // For regular comments, just select/deselect
       setSelectedComment(selectedComment === comment.id ? null : comment.id);
     }
   };
@@ -416,9 +518,9 @@ export function DesignViewer({
   const copyFileUrl = async () => {
     const fileUrl = selectedItem.url || selectedItem.file_url;
     if (!fileUrl) return;
-    
+
     const fullUrl = typeof window !== 'undefined' ? `${window.location.origin}${fileUrl}` : fileUrl;
-    
+
     try {
       await navigator.clipboard.writeText(fullUrl);
       setCopiedUrl(true);
@@ -431,7 +533,7 @@ export function DesignViewer({
   const updateReviewStatus = async (status: 'APPROVED' | 'REVISION_REQUESTED') => {
     setIsUpdatingStatus(true);
     try {
-      const response = await fetch(`/api/reviews/${reviewId}/status`, {
+      const response = await fetch(`/api/reviews/status?reviewId=${reviewId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -441,7 +543,7 @@ export function DesignViewer({
 
       if (response.ok) {
         setReviewStatus(status);
-        
+
         // Emit socket event for real-time updates
         if (socket && isConnected) {
           socket.emit('update-status', {
@@ -469,21 +571,6 @@ export function DesignViewer({
 
   return (
     <div className="h-full flex flex-col bg-[#1a1a1a]">
-      {/* Connection Status */}
-      <div className="px-4 py-2 bg-neutral-900 border-b border-neutral-800">
-        <div className="flex items-center justify-between text-sm">
-          <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
-            <span className="text-neutral-400">
-              {isConnected ? 'Connected to server' : 'Disconnected from server'}
-            </span>
-          </div>
-          <div className="text-neutral-500">
-            Real-time updates {isConnected ? 'enabled' : 'disabled'}
-          </div>
-        </div>
-      </div>
-
       {/* Thumbnails Row with Buttons */}
       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between p-4 lg:p-6 bg-[#1a1a1a] gap-4 lg:gap-0">
         {/* Thumbnails */}
@@ -495,11 +582,10 @@ export function DesignViewer({
             >
               <button
                 onClick={() => setSelectedIndex(index)}
-                className={`w-24 h-16 lg:w-32 lg:h-20 rounded overflow-hidden border-2 transition-all ${
-                  selectedIndex === index
+                className={`w-24 h-16 lg:w-32 lg:h-20 rounded overflow-hidden border-2 transition-all ${selectedIndex === index
                     ? "border-[#fdb913] ring-2 ring-[#fdb913]/50"
                     : "border-neutral-700 hover:border-neutral-600"
-                }`}
+                  }`}
               >
                 <Image
                   src={item.url || item.file_url || "/placeholder.svg"}
@@ -509,45 +595,30 @@ export function DesignViewer({
                   className="w-full h-full object-cover"
                 />
               </button>
-              <span className="text-xs lg:text-sm text-white text-center max-w-24 lg:max-w-none">
-                {item.name || item.file_name || "Design File"}
-              </span>
+
             </div>
           ))}
         </div>
-    
+
 
         {/* Action Buttons - Conditionally render based on hideApprovalButtons prop */}
         {!hideApprovalButtons && (
           <div className="flex flex-col gap-4 lg:min-w-[280px] w-full lg:w-auto">
-            {/* Status Display */}
-            <div className="text-center">
-              <div className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold ${
-                reviewStatus === 'APPROVED' 
-                  ? 'bg-green-500/20 text-green-400 border border-green-500/30' 
-                  : reviewStatus === 'REVISION_REQUESTED'
-                  ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
-                  : 'bg-neutral-500/20 text-neutral-400 border border-neutral-500/30'
-              }`}>
-                Status: {reviewStatus === 'APPROVED' ? '✅ APPROVED' : reviewStatus === 'REVISION_REQUESTED' ? '📝 REVISION REQUESTED' : '⏳ PENDING'}
-              </div>
-            </div>
-            
             {/* Action Buttons */}
             <div className="flex flex-row lg:flex-col gap-3">
-              <button 
+              <button
                 onClick={() => updateReviewStatus('APPROVED')}
                 disabled={isUpdatingStatus || reviewStatus === 'APPROVED'}
                 className="flex-1 lg:w-full px-4 lg:px-6 py-2.5 lg:py-3.5 bg-transparent border-2 border-green-500 text-green-500 font-bold rounded hover:bg-green-500 hover:text-black transition-all uppercase tracking-wide text-xs lg:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isUpdatingStatus ? 'Updating...' : 'Approve Project'}
+                {isUpdatingStatus ? 'Updating...' : reviewStatus === 'APPROVED' ? 'Project Approved' : 'Approve Project'}
               </button>
-              <button 
+              <button
                 onClick={() => updateReviewStatus('REVISION_REQUESTED')}
-                disabled={isUpdatingStatus || reviewStatus === 'REVISION_REQUESTED'}
+                disabled={isUpdatingStatus || reviewStatus === 'REVISION_REQUESTED' || reviewStatus === 'APPROVED'}
                 className="flex-1 lg:w-full px-4 lg:px-6 py-2.5 lg:py-3.5 bg-transparent border-2 border-yellow-500 text-yellow-500 font-bold rounded hover:bg-yellow-500 hover:text-black transition-all uppercase tracking-wide text-xs lg:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isUpdatingStatus ? 'Updating...' : 'Request Revisions'}
+                {isUpdatingStatus ? 'Updating...' : reviewStatus === 'APPROVED' ? 'Cannot Request Revisions' : 'Request Revisions'}
               </button>
             </div>
           </div>
@@ -555,17 +626,28 @@ export function DesignViewer({
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden min-h-0">
         {/* Image Display Area with Drawing Canvas */}
-        <div className="flex-1 bg-black flex items-center justify-center p-2 lg:p-4 overflow-hidden relative min-h-0">
+        <div className="flex-1 bg-black flex items-center justify-center p-1 lg:p-2 overflow-hidden relative min-h-0 max-h-[calc(100vh-200px)] lg:max-h-[calc(100vh-120px)]">
           <div className="relative w-full h-full flex items-center justify-center">
             <Image
+              ref={imageRef}
               src={selectedItem.url || selectedItem.file_url || "/placeholder.svg"}
               alt={selectedItem.name || selectedItem.file_name || "Design file"}
-              width={800}
-              height={600}
-              className="h-[300px] lg:h-[600px] w-auto object-contain max-w-full"
+              width={1200}
+              height={900}
+              className="h-full w-auto object-contain"
+              style={{ maxWidth: '100%', maxHeight: '100%' }}
               priority
+              onLoad={() => {
+                // Trigger size update when image loads
+                setTimeout(() => {
+                  if (imageRef.current) {
+                    const rect = imageRef.current.getBoundingClientRect();
+                    setImageSize({ width: rect.width, height: rect.height });
+                  }
+                }, 100);
+              }}
             />
 
             {/* Annotation Mode - Drawing Canvas */}
@@ -585,35 +667,70 @@ export function DesignViewer({
             )}
 
             {/* View Mode - Show Selected Annotation Drawing on Image */}
-            {!annotationMode && viewingAnnotation && (
-              <div className="absolute inset-0 pointer-events-none">
-                <Image
-                  src={viewingAnnotation}
-                  alt="Annotation Overlay"
-                  width={800}
-                  height={600}
-                  className="h-[300px] lg:h-[600px] w-auto object-contain max-w-full"
-                />
-              </div>
-            )}
+            {!annotationMode && selectedComment && itemComments.find(c => c.id === selectedComment)?.hasDrawing && (() => {
+              const selectedCommentData = itemComments.find(c => c.id === selectedComment);
+              if (!selectedCommentData?.canvasPosition) {
+                // Fallback to full overlay if no position data
+                return (
+                  <div className="absolute inset-0 pointer-events-none">
+                    <Image
+                      src={selectedCommentData?.drawingData || ""}
+                      alt="Selected Annotation Drawing"
+                      width={1200}
+                      height={900}
+                      className="h-full w-full object-contain opacity-90"
+                    />
+                  </div>
+                );
+              }
 
-            {/* Viewing Indicator Badge */}
-            {viewingAnnotation && !annotationMode && (
+              // Use percentage-based positioning for responsive design
+              const position = selectedCommentData.canvasPosition;
+
+              return (
+                <div
+                  className="absolute pointer-events-none"
+                  style={{
+                    left: `${position.x * 100}%`,
+                    top: `${position.y * 100}%`,
+                    width: `${position.width * 100}%`,
+                    height: `${position.height * 100}%`,
+                  }}
+                >
+                  <Image
+                    src={selectedCommentData.drawingData || ""}
+                    alt="Selected Annotation Drawing"
+                    width={1200}
+                    height={900}
+                    className="w-full h-full object-contain opacity-90"
+                  />
+                </div>
+              );
+            })()}
+
+            {/* Selected Annotation Badge */}
+            {!annotationMode && selectedComment && itemComments.find(c => c.id === selectedComment)?.hasDrawing && (
               <div className="absolute top-2 left-2 lg:top-4 lg:left-4 px-2 lg:px-4 py-1 lg:py-2 bg-[#fdb913] text-black rounded-lg font-bold text-xs lg:text-sm shadow-xl flex items-center gap-1 lg:gap-2 animate-pulse">
                 <Pencil className="w-3 h-3 lg:w-4 lg:h-4" />
-                <span className="hidden sm:inline">
-                  Viewing Annotation on Image
+                <span>
+                  Showing annotation by {itemComments.find(c => c.id === selectedComment)?.author}
                 </span>
-                <span className="sm:hidden">Viewing</span>
+                <button
+                  onClick={() => setSelectedComment(null)}
+                  className="ml-2 px-2 py-1 bg-black/20 hover:bg-black/40 rounded text-xs transition-colors"
+                  title="Hide annotation"
+                >
+                  ✕
+                </button>
               </div>
             )}
           </div>
         </div>
 
         {/* Right Sidebar - Comments & Annotations */}
-        <div className="w-full lg:w-96 bg-black border-t lg:border-t-0 lg:border-l border-neutral-800 flex flex-col max-h-96 lg:max-h-none">
+        <div className="w-full lg:w-96 bg-black border-t lg:border-t-0 lg:border-l border-neutral-800 flex flex-col overflow-hidden" style={{ maxHeight: 'calc(100vh - 120px)' }}>
           {/* Section Header */}
-          <div className="p-3 lg:p-4 border-b border-neutral-800">
+          <div className="p-3 lg:p-4 border-b border-neutral-800 flex-shrink-0">
             <h3 className="text-base lg:text-lg font-bold text-white flex items-center gap-2">
               <span className="text-[#fdb913]">💬</span>
               Comments & Annotations
@@ -621,30 +738,44 @@ export function DesignViewer({
           </div>
 
           {/* Comments & Annotations List */}
-          <div className="flex-1 overflow-y-auto p-3 lg:p-6">
+          <div
+            ref={commentsContainerRef}
+            className="flex-1 overflow-y-auto p-3 lg:p-6 comments-scrollbar relative"
+            style={{
+              maxHeight: 'calc(100vh - 400px)',
+              scrollBehavior: 'smooth',
+              WebkitOverflowScrolling: 'touch'
+            }}
+            onScroll={(e) => {
+              const container = e.target as HTMLDivElement;
+              const { scrollTop, scrollHeight, clientHeight } = container;
+              const isAtBottom = scrollTop + clientHeight >= scrollHeight - 10;
+              setShowScrollToBottom(!isAtBottom);
+            }}
+          >
             {itemComments.length > 0 ? (
               <div className="space-y-3 lg:space-y-4">
                 {itemComments.map((comment) => (
                   <div
                     key={comment.id}
-                    className={`cursor-pointer transition-all ${
-                      comment.type === "annotation"
-                        ? `p-2 lg:p-3 rounded-lg ${
-                            viewingAnnotation === comment.drawingData
-                              ? "bg-[#fdb913]/30 border-2 border-[#fdb913]"
-                              : "bg-[#fdb913]/10 border border-[#fdb913]/30"
-                          } hover:bg-[#fdb913]/20`
-                        : "hover:bg-neutral-900/50 p-2 rounded"
-                    }`}
-                    onClick={() => handleAnnotationClick(comment)}
+                    className={`cursor-pointer transition-all ${comment.type === "annotation"
+                        ? `p-2 lg:p-3 rounded-lg ${selectedComment === comment.id
+                          ? "bg-[#fdb913]/30 border-2 border-[#fdb913]"
+                          : "bg-[#fdb913]/10 border border-[#fdb913]/30"
+                        } hover:bg-[#fdb913]/20`
+                        : `p-2 rounded ${selectedComment === comment.id
+                          ? "bg-neutral-800 border border-neutral-600"
+                          : "hover:bg-neutral-900/50"
+                        }`
+                      }`}
+                    onClick={() => handleCommentClick(comment)}
                   >
                     <div className="flex gap-2 lg:gap-3">
                       <div
-                        className={`w-8 h-8 lg:w-10 lg:h-10 rounded-full flex items-center justify-center text-white font-bold text-xs lg:text-sm flex-shrink-0 ${
-                          comment.type === "annotation"
+                        className={`w-8 h-8 lg:w-10 lg:h-10 rounded-full flex items-center justify-center text-white font-bold text-xs lg:text-sm flex-shrink-0 ${comment.type === "annotation"
                             ? "bg-gradient-to-br from-[#fdb913] to-orange-500"
                             : "bg-gradient-to-br from-purple-500 to-pink-500"
-                        }`}
+                          }`}
                       >
                         {comment.type === "annotation"
                           ? "📍"
@@ -670,7 +801,7 @@ export function DesignViewer({
                         {comment.hasDrawing && (
                           <div className="mt-1 lg:mt-2 text-xs text-[#fdb913] flex items-center gap-1">
                             <Pencil className="w-3 h-3" />
-                            {viewingAnnotation === comment.drawingData
+                            {selectedComment === comment.id
                               ? "✓ Showing on image"
                               : "👁️ Click to view on image"}
                           </div>
@@ -681,203 +812,298 @@ export function DesignViewer({
                 ))}
               </div>
             ) : (
-              <div className="flex items-center justify-center h-full">
-                <p className="text-neutral-500 text-xs lg:text-sm">
-                  No comments yet
-                </p>
+              <div className="flex flex-col items-center justify-center h-full space-y-4">
+                <div className="text-center">
+                  <div className="text-neutral-600 text-4xl mb-2">💬</div>
+                  <p className="text-neutral-500 text-xs lg:text-sm mb-2">
+                    No comments yet
+                  </p>
+                  <p className="text-neutral-600 text-xs">
+                    Add your first comment below
+                  </p>
+                </div>
+
+                {/* Placeholder comments to show scrollbar */}
+                <div className="w-full space-y-3 opacity-30">
+                  <div className="p-2 rounded bg-neutral-900/50">
+                    <div className="flex gap-2">
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold text-xs">
+                        A
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-baseline gap-2 mb-1">
+                          <span className="text-white font-semibold text-xs">Admin</span>
+                          <span className="text-neutral-500 text-xs">•today</span>
+                        </div>
+                        <p className="text-neutral-300 text-xs">Sample comment...</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="p-2 rounded bg-neutral-900/50">
+                    <div className="flex gap-2">
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white font-bold text-xs">
+                        C
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-baseline gap-2 mb-1">
+                          <span className="text-white font-semibold text-xs">Client</span>
+                          <span className="text-neutral-500 text-xs">•today</span>
+                        </div>
+                        <p className="text-neutral-300 text-xs">Another sample comment...</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
+ 
           </div>
 
           {/* Add Comment/Annotation Input - WeTransfer Style with Custom Icons */}
-          <div className="p-3 lg:p-4 border-t border-neutral-800 space-y-2 lg:space-y-3">
-            {/* Mode Indicator */}
-            {isAddingAnnotation && (
-              <div className="px-2 lg:px-3 py-1.5 lg:py-2 bg-[#fdb913]/20 border border-[#fdb913]/50 rounded text-[#fdb913] text-xs font-semibold flex items-center gap-2">
-                <Pencil className="w-3 h-3 lg:w-4 lg:h-4" />
-                <span className="hidden sm:inline">
-                  Annotation Mode - Draw on image & add message
-                </span>
-                <span className="sm:hidden">Annotation Mode</span>
+          <div className="p-3 lg:p-4 border-t border-neutral-800 space-y-2 lg:space-y-3 flex-shrink-0 bg-black">
+            {/* Approved Status Message */}
+            {reviewStatus === 'APPROVED' && (
+              <div className="bg-green-500/20 border border-green-500/50 rounded-lg p-4 text-center">
+                <div className="text-green-400 text-4xl mb-2">🎉</div>
+                <h3 className="text-green-400 font-bold text-lg mb-2">Project Approved!</h3>
+                <p className="text-green-300 text-sm mb-4">
+                  This project has been approved. Comments are now disabled.
+                </p>
+
+                {/* Download Button */}
+                <button
+                  onClick={() => {
+                    // Download all files for this project
+                    designItems.forEach((item, index) => {
+                      const link = document.createElement('a');
+                      link.href = item.url || item.file_url || '';
+                      link.download = item.name || item.file_name || `design-${index + 1}`;
+                      link.target = '_blank';
+                      document.body.appendChild(link);
+                      link.click();
+                      document.body.removeChild(link);
+                    });
+                    toast.success('Download started!');
+                  }}
+                  className="w-full px-6 py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  Download All Files
+                </button>
               </div>
             )}
 
-            {/* Name Display */}
-            <div className="flex items-center gap-2">
-              <div className="flex-1 flex items-center gap-2 lg:gap-3 px-3 lg:px-4 py-2 lg:py-2.5 bg-neutral-900/50 rounded-lg border border-neutral-700">
-                <div className="w-6 h-6 lg:w-8 lg:h-8 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center flex-shrink-0">
-                  <PenTool className="w-3 h-3 lg:w-4 lg:h-4 text-white" />
-                </div>
-                <span className="flex-1 text-white text-xs lg:text-sm font-semibold truncate">
-                  {authorName || "Your name"}
-                </span>
-              </div>
-              <button
-                onClick={handleChangeName}
-                className="p-2 lg:p-2.5 bg-neutral-800 text-neutral-400 rounded hover:bg-neutral-700 hover:text-[#fdb913] transition-colors"
-                title="Change Name"
-              >
-                <Edit2 className="w-3 h-3 lg:w-4 lg:h-4" />
-              </button>
-            </div>
-
-            {/* Comment Input Box - WeTransfer Style */}
-            <div className="bg-neutral-800 rounded-lg border border-neutral-700 p-2 lg:p-3">
-              {/* Annotation Controls Row - WeTransfer Style */}
-              <div className="flex items-center gap-2 mb-2">
-                {/* Color Swatches - Only show when annotation mode is active */}
+            {/* Regular Comment Input - Only show if not approved */}
+            {reviewStatus !== 'APPROVED' && (
+              <>
+                {/* Mode Indicator */}
                 {isAddingAnnotation && (
-                  <div className="flex items-center gap-1">
-                    {colors.slice(0, 4).map((c) => (
-                      <button
-                        key={c}
-                        onClick={() => setStrokeColor(c)}
-                        className={`w-3 h-3 lg:w-4 lg:h-4 rounded-full border transition-transform hover:scale-110 ${
-                          strokeColor === c
-                            ? "border-white scale-110"
-                            : "border-transparent"
-                        }`}
-                        style={{ backgroundColor: c }}
-                        title={`Select ${c} color`}
-                      />
-                    ))}
+                  <div className="px-2 lg:px-3 py-1.5 lg:py-2 bg-[#fdb913]/20 border border-[#fdb913]/50 rounded text-[#fdb913] text-xs font-semibold flex items-center gap-2">
+                    <Pencil className="w-3 h-3 lg:w-4 lg:h-4" />
+                    <span className="hidden sm:inline">
+                      Annotation Mode - Draw on image & add message
+                    </span>
+                    <span className="sm:hidden">Annotation Mode</span>
                   </div>
                 )}
 
-                {/* Annotation Tools - Using Lucide Icons */}
-                <div className="flex items-center gap-1 ml-2">
-                  {/* Drawing/Pen Icon - Using Lucide PenTool */}
+                {/* Name Display */}
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 flex items-center gap-2 lg:gap-3 px-3 lg:px-4 py-2 lg:py-2.5 bg-neutral-900/50 rounded-lg border border-neutral-700">
+                    <div className="w-6 h-6 lg:w-8 lg:h-8 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center flex-shrink-0">
+                      <PenTool className="w-3 h-3 lg:w-4 lg:h-4 text-white" />
+                    </div>
+                    <span className="flex-1 text-white text-xs lg:text-sm font-semibold truncate">
+                      {authorName || "Your name"}
+                    </span>
+                  </div>
                   <button
-                    onClick={() => {
-                      setIsAddingAnnotation(!isAddingAnnotation);
-                      setAnnotationMode(!isAddingAnnotation);
-                    }}
-                    className={`p-1 lg:p-1.5 rounded transition-colors ${
-                      isAddingAnnotation
-                        ? "bg-red-600 text-white hover:bg-red-700"
-                        : "bg-neutral-700 text-white hover:bg-neutral-600"
-                    }`}
-                    title={
-                      isAddingAnnotation
-                        ? "Exit annotation mode"
-                        : "Add annotation"
-                    }
+                    onClick={handleChangeName}
+                    className="p-2 lg:p-2.5 bg-neutral-800 text-neutral-400 rounded hover:bg-neutral-700 hover:text-[#fdb913] transition-colors"
+                    title="Change Name"
                   >
-                    <PenTool className="w-3 h-3" />
+                    <Edit2 className="w-3 h-3 lg:w-4 lg:h-4" />
                   </button>
-
-                  {/* Separator Line - Only show when colors are visible */}
-                  {isAddingAnnotation && (
-                    <div className="w-px h-3 lg:h-4 bg-neutral-600"></div>
-                  )}
-
-                  {/* Color Drop/Pin Icon - Using Lucide Droplets */}
-                  <button
-                    onClick={() => {
-                      setIsAddingAnnotation(!isAddingAnnotation);
-                      setAnnotationMode(!isAddingAnnotation);
-                    }}
-                    className={`p-1 lg:p-1.5 rounded transition-colors ${
-                      isAddingAnnotation
-                        ? "bg-red-600 text-white hover:bg-red-700"
-                        : "bg-neutral-700 text-red-500 hover:bg-neutral-600 hover:text-red-400"
-                    }`}
-                    title={
-                      isAddingAnnotation
-                        ? "Exit annotation mode"
-                        : "Add annotation"
-                    }
-                  >
-                    <Droplets className="w-3 h-3" />
-                  </button>
-
-                  {/* Trash Can Icon - Using Lucide Trash2 */}
-                  {isAddingAnnotation && (
-                    <button
-                      onClick={handleClearDrawings}
-                      className="p-1 lg:p-1.5 rounded bg-neutral-700 text-neutral-400 hover:bg-neutral-600 hover:text-red-400 transition-colors"
-                      title="Clear all drawings"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  )}
                 </div>
 
-                {/* Additional Controls when in annotation mode */}
-                {isAddingAnnotation && (
-                  <div className="flex items-center gap-1 lg:gap-2 ml-auto">
-                    <div className="flex items-center gap-1">
-                      <span className="text-neutral-400 text-xs hidden sm:inline">
-                        Size:
-                      </span>
-                      <input
-                        type="range"
-                        min="1"
-                        max="10"
-                        value={strokeWidth}
-                        onChange={(e) =>
-                          setStrokeWidth(parseInt(e.target.value))
+                {/* Comment Input Box - WeTransfer Style */}
+                <div className="bg-neutral-800 rounded-lg border border-neutral-700 p-2 lg:p-3">
+                  {/* Annotation Controls Row - WeTransfer Style */}
+                  <div className="flex items-center gap-2 mb-2">
+                    {/* Color Swatches - Only show when annotation mode is active */}
+                    {isAddingAnnotation && (
+                      <div className="flex items-center gap-1">
+                        {colors.slice(0, 4).map((c) => (
+                          <button
+                            key={c}
+                            onClick={() => setStrokeColor(c)}
+                            className={`w-3 h-3 lg:w-4 lg:h-4 rounded-full border transition-transform hover:scale-110 ${strokeColor === c
+                                ? "border-white scale-110"
+                                : "border-transparent"
+                              }`}
+                            style={{ backgroundColor: c }}
+                            title={`Select ${c} color`}
+                          />
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Annotation Tools - Using Lucide Icons */}
+                    <div className="flex items-center gap-1 ml-2">
+                      {/* Drawing/Pen Icon - Using Lucide PenTool */}
+                      <button
+                        onClick={() => {
+                          if (reviewStatus === 'APPROVED') {
+                            toast.error('Annotations are disabled for approved projects');
+                            return;
+                          }
+                          setIsAddingAnnotation(!isAddingAnnotation);
+                          setAnnotationMode(!isAddingAnnotation);
+                        }}
+                        disabled={reviewStatus === 'APPROVED'}
+                        className={`p-1 lg:p-1.5 rounded transition-colors ${isAddingAnnotation
+                            ? "bg-red-600 text-white hover:bg-red-700"
+                            : reviewStatus === 'APPROVED'
+                              ? "bg-neutral-800 text-neutral-500 cursor-not-allowed"
+                              : "bg-neutral-700 text-white hover:bg-neutral-600"
+                          }`}
+                        title={
+                          reviewStatus === 'APPROVED'
+                            ? "Annotations disabled for approved projects"
+                            : isAddingAnnotation
+                              ? "Exit annotation mode"
+                              : "Add annotation"
                         }
-                        className="w-8 lg:w-12 accent-[#fdb913]"
-                        title="Brush size"
-                      />
-                      <span className="text-white text-xs w-3 lg:w-4">
-                        {strokeWidth}px
-                      </span>
+                      >
+                        <PenTool className="w-3 h-3" />
+                      </button>
+
+                      {/* Separator Line - Only show when colors are visible */}
+                      {isAddingAnnotation && (
+                        <div className="w-px h-3 lg:h-4 bg-neutral-600"></div>
+                      )}
+
+                      {/* Color Drop/Pin Icon - Using Lucide Droplets */}
+                      <button
+                        onClick={() => {
+                          if (reviewStatus === 'APPROVED') {
+                            toast.error('Annotations are disabled for approved projects');
+                            return;
+                          }
+                          setIsAddingAnnotation(!isAddingAnnotation);
+                          setAnnotationMode(!isAddingAnnotation);
+                        }}
+                        disabled={reviewStatus === 'APPROVED'}
+                        className={`p-1 lg:p-1.5 rounded transition-colors ${isAddingAnnotation
+                            ? "bg-red-600 text-white hover:bg-red-700"
+                            : reviewStatus === 'APPROVED'
+                              ? "bg-neutral-800 text-neutral-500 cursor-not-allowed"
+                              : "bg-neutral-700 text-red-500 hover:bg-neutral-600 hover:text-red-400"
+                          }`}
+                        title={
+                          reviewStatus === 'APPROVED'
+                            ? "Annotations disabled for approved projects"
+                            : isAddingAnnotation
+                              ? "Exit annotation mode"
+                              : "Add annotation"
+                        }
+                      >
+                        <Droplets className="w-3 h-3" />
+                      </button>
+
+                      {/* Trash Can Icon - Using Lucide Trash2 */}
+                      {isAddingAnnotation && (
+                        <button
+                          onClick={handleClearDrawings}
+                          className="p-1 lg:p-1.5 rounded bg-neutral-700 text-neutral-400 hover:bg-neutral-600 hover:text-red-400 transition-colors"
+                          title="Clear all drawings"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
                     </div>
 
-                    <button
-                      onClick={handleUndo}
-                      className="p-1 lg:p-1.5 rounded bg-neutral-700 text-neutral-400 hover:bg-neutral-600 hover:text-white transition-colors"
-                      title="Undo"
-                    >
-                      <Undo className="w-3 h-3" />
-                    </button>
+                    {/* Additional Controls when in annotation mode */}
+                    {isAddingAnnotation && (
+                      <div className="flex items-center gap-1 lg:gap-2 ml-auto">
+                        <div className="flex items-center gap-1">
+                          <span className="text-neutral-400 text-xs hidden sm:inline">
+                            Size:
+                          </span>
+                          <input
+                            type="range"
+                            min="1"
+                            max="10"
+                            value={strokeWidth}
+                            onChange={(e) =>
+                              setStrokeWidth(parseInt(e.target.value))
+                            }
+                            className="w-8 lg:w-12 accent-[#fdb913]"
+                            title="Brush size"
+                          />
+                          <span className="text-white text-xs w-3 lg:w-4">
+                            {strokeWidth}px
+                          </span>
+                        </div>
+
+                        <button
+                          onClick={handleUndo}
+                          className="p-1 lg:p-1.5 rounded bg-neutral-700 text-neutral-400 hover:bg-neutral-600 hover:text-white transition-colors"
+                          title="Undo"
+                        >
+                          <Undo className="w-3 h-3" />
+                        </button>
+                      </div>
+                    )}
                   </div>
+
+                  {/* Text Input Area */}
+                  <textarea
+                    value={newCommentText}
+                    onChange={(e) => setNewCommentText(e.target.value)}
+                    placeholder={reviewStatus === 'APPROVED' ? "Comments disabled - Project approved" : "Add comment..."}
+                    rows={2}
+                    disabled={reviewStatus === 'APPROVED'}
+                    className={`w-full bg-transparent text-white text-xs lg:text-sm outline-none placeholder:text-neutral-500 resize-none ${reviewStatus === 'APPROVED' ? 'cursor-not-allowed opacity-50' : ''
+                      }`}
+                  />
+                </div>
+
+                {/* Action Buttons - WeTransfer Style */}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      setIsAddingAnnotation(false);
+                      setAnnotationMode(false);
+                      setNewCommentText("");
+                    }}
+                    className="px-3 lg:px-4 py-1.5 lg:py-2 text-neutral-400 hover:text-white transition-colors text-xs lg:text-sm"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSubmitAnnotation}
+                    disabled={!newCommentText.trim() || !authorName.trim() || reviewStatus === 'APPROVED'}
+                    className="ml-auto px-3 lg:px-4 py-1.5 lg:py-2 bg-[#fdb913] text-black font-bold rounded hover:bg-[#e5a711] transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-xs lg:text-sm"
+                  >
+                    {reviewStatus === 'APPROVED' ? "Disabled" : isAddingAnnotation ? "Add Annotation" : "Add"}
+                  </button>
+                </div>
+
+                {/* Helper Text */}
+                {isAddingAnnotation && (
+                  <p className="text-xs text-neutral-500 text-center">
+                    <span className="hidden sm:inline">
+                      Draw on the image using colors above, then add your message
+                    </span>
+                    <span className="sm:hidden">
+                      Draw on image, then add message
+                    </span>
+                  </p>
                 )}
-              </div>
-
-              {/* Text Input Area */}
-              <textarea
-                value={newCommentText}
-                onChange={(e) => setNewCommentText(e.target.value)}
-                placeholder="Add comment..."
-                rows={2}
-                className="w-full bg-transparent text-white text-xs lg:text-sm outline-none placeholder:text-neutral-500 resize-none"
-              />
-            </div>
-
-            {/* Action Buttons - WeTransfer Style */}
-            <div className="flex gap-2">
-              <button
-                onClick={() => {
-                  setIsAddingAnnotation(false);
-                  setAnnotationMode(false);
-                  setNewCommentText("");
-                }}
-                className="px-3 lg:px-4 py-1.5 lg:py-2 text-neutral-400 hover:text-white transition-colors text-xs lg:text-sm"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSubmitAnnotation}
-                disabled={!newCommentText.trim() || !authorName.trim()}
-                className="ml-auto px-3 lg:px-4 py-1.5 lg:py-2 bg-[#fdb913] text-black font-bold rounded hover:bg-[#e5a711] transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-xs lg:text-sm"
-              >
-                {isAddingAnnotation ? "Add Annotation" : "Add"}
-              </button>
-            </div>
-
-            {/* Helper Text */}
-            {isAddingAnnotation && (
-              <p className="text-xs text-neutral-500 text-center">
-                <span className="hidden sm:inline">
-                  Draw on the image using colors above, then add your message
-                </span>
-                <span className="sm:hidden">
-                  Draw on image, then add message
-                </span>
-              </p>
+              </>
             )}
           </div>
         </div>

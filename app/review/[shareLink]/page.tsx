@@ -161,7 +161,7 @@ export default function ClientReviewPage() {
       </header>
 
       {/* Main Content - Full Height */}
-      <main className="flex-1 overflow-hidden">
+      <main className="flex-1 overflow-hidden min-h-0">
         {designItems.length === 0 ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center py-20">

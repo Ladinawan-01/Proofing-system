@@ -89,3 +89,75 @@
     @apply bg-gray-950 text-white;
   }
 }
+
+/* Custom Scrollbar Styles */
+@layer components {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(75 85 99) rgb(31 41 55);
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: rgb(31 41 55);
+    border-radius: 4px;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: rgb(75 85 99);
+    border-radius: 4px;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: rgb(107 114 128);
+  }
+  
+  .scrollbar-track-neutral-800::-webkit-scrollbar-track {
+    background: rgb(31 41 55);
+  }
+  
+  .scrollbar-thumb-neutral-600::-webkit-scrollbar-thumb {
+    background: rgb(75 85 99);
+  }
+  
+  .hover\:scrollbar-thumb-neutral-500:hover::-webkit-scrollbar-thumb {
+    background: rgb(107 114 128);
+  }
+  
+  /* Comments Section Scrollbar */
+  .comments-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: #9ca3af #1f2937;
+    overflow-y: auto;
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  .comments-scrollbar::-webkit-scrollbar {
+    width: 12px;
+  }
+  
+  .comments-scrollbar::-webkit-scrollbar-track {
+    background: #1f2937;
+    border-radius: 6px;
+    border: 1px solid #374151;
+  }
+  
+  .comments-scrollbar::-webkit-scrollbar-thumb {
+    background: #9ca3af;
+    border-radius: 6px;
+    border: 1px solid #6b7280;
+  }
+  
+  .comments-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #d1d5db;
+    border: 1px solid #9ca3af;
+  }
+  
+  .comments-scrollbar::-webkit-scrollbar-thumb:active {
+    background: #f3f4f6;
+  }
+}
