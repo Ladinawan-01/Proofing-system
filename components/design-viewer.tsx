@@ -16,15 +16,23 @@ import {
   Edit2,
   PenTool,
   Droplets,
+  Copy,
+  Check,
 } from "lucide-react";
-import { saveComment, getCommentsByFile, StoredComment } from "@/lib/storage";
+// Removed localStorage imports - now using database APIs
 import { WelcomeModal } from "./welcome-modal";
+import { useSocket } from "@/contexts/SocketContext";
+import toast from 'react-hot-toast';
 
 interface DesignItem {
   id: number;
-  file_url: string;
-  file_name: string;
-  version: number;
+  file_url?: string;
+  file_name?: string;
+  url?: string;
+  name?: string;
+  type?: string;
+  size?: number;
+  version?: number;
 }
 
 interface DesignViewerProps {
@@ -42,6 +50,17 @@ interface Comment {
   type: "comment" | "annotation";
   hasDrawing: boolean;
   drawingData?: string; // Base64 image of the drawing
+  designItemId: number;
+  createdAt: string;
+}
+
+interface Annotation {
+  id: number;
+  designItemId: number;
+  xPosition: number;
+  yPosition: number;
+  content: string;
+  createdAt: string;
 }
 
 export function DesignViewer({
@@ -52,6 +71,7 @@ export function DesignViewer({
 }: DesignViewerProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [comments, setComments] = useState<Record<number, Comment[]>>({});
+  const [annotations, setAnnotations] = useState<Record<number, Annotation[]>>({});
   const [newCommentText, setNewCommentText] = useState("");
   const [authorName, setAuthorName] = useState("");
   const [isAddingAnnotation, setIsAddingAnnotation] = useState(false);
@@ -61,6 +81,12 @@ export function DesignViewer({
   >({});
   const [loaded, setLoaded] = useState(false);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
+  const [isLoadingComments, setIsLoadingComments] = useState(false);
+  const [refreshInterval, setRefreshInterval] = useState<NodeJS.Timeout | null>(null);
+  const [reviewStatus, setReviewStatus] = useState<string>('PENDING');
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  
+  const { socket, isConnected } = useSocket();
 
   // Annotation state
   const [annotationMode, setAnnotationMode] = useState(false);
@@ -69,6 +95,7 @@ export function DesignViewer({
   const [viewingAnnotation, setViewingAnnotation] = useState<string | null>(
     null
   );
+  const [copiedUrl, setCopiedUrl] = useState(false);
   const canvasRef = useRef<any>(null);
 
   const selectedItem = designItems[selectedIndex];
@@ -84,33 +111,132 @@ export function DesignViewer({
     "#000000",
   ];
 
-  // Load comments from localStorage on mount
+  // Load comments and annotations from database on mount
   useEffect(() => {
-    const loadComments = () => {
-      const allStoredComments = getCommentsByFile(reviewId, selectedItem.id);
+    const loadCommentsAndAnnotations = async () => {
+      setIsLoadingComments(true);
+      try {
+        const commentsMap: Record<number, Comment[]> = {};
+        const annotationsMap: Record<number, Annotation[]> = {};
 
-      // Convert stored comments to component format
-      const commentsMap: Record<number, Comment[]> = {};
+        // Load comments and annotations for all design items
+        for (const item of designItems) {
+          // Load comments
+          const commentsResponse = await fetch(`/api/comments?designItemId=${item.id}`);
+          if (commentsResponse.ok) {
+            const commentsData = await commentsResponse.json();
+            commentsMap[item.id] = commentsData.map((c: any) => ({
+              id: c.id,
+              author: c.author,
+              content: c.content,
+              timestamp: new Date(c.createdAt),
+              type: c.type,
+              hasDrawing: !!c.drawingData,
+              drawingData: c.drawingData,
+              designItemId: c.designItemId,
+              createdAt: c.createdAt
+            }));
+          }
 
-      designItems.forEach((item) => {
-        const fileComments = getCommentsByFile(reviewId, item.id);
-        commentsMap[item.id] = fileComments.map((sc) => ({
-          id: sc.id,
-          author: sc.author,
-          content: sc.content,
-          timestamp: new Date(sc.timestamp),
-          type: sc.type,
-          hasDrawing: sc.hasDrawing,
-          drawingData: sc.drawingData,
-        }));
-      });
+          // Load annotations
+          const annotationsResponse = await fetch(`/api/annotations?designItemId=${item.id}`);
+          if (annotationsResponse.ok) {
+            const annotationsData = await annotationsResponse.json();
+            annotationsMap[item.id] = annotationsData.map((a: any) => ({
+              id: a.id,
+              designItemId: a.designItemId,
+              xPosition: parseFloat(a.xPosition),
+              yPosition: parseFloat(a.yPosition),
+              content: a.content,
+              createdAt: a.createdAt
+            }));
+          }
+        }
 
-      setComments(commentsMap);
-      setLoaded(true);
+        setComments(commentsMap);
+        setAnnotations(annotationsMap);
+        setLoaded(true);
+      } catch (error) {
+        console.error('Error loading comments and annotations:', error);
+      } finally {
+        setIsLoadingComments(false);
+      }
     };
 
-    loadComments();
-  }, [reviewId]);
+    if (designItems.length > 0) {
+      loadCommentsAndAnnotations();
+    }
+  }, [designItems]);
+
+  // Socket.IO real-time communication
+  useEffect(() => {
+    if (socket && isConnected) {
+      // Join review room
+      socket.emit('join-review', reviewId);
+
+      // Listen for new comments
+      socket.on('comment-added', (data) => {
+        console.log('New comment received via socket:', data);
+        
+        // Add the new comment to the state
+        const newComment: Comment = {
+          id: data.commentId,
+          author: data.author,
+          content: data.content,
+          timestamp: new Date(),
+          type: data.type,
+          hasDrawing: data.hasDrawing || false,
+          drawingData: data.drawingData || undefined,
+          designItemId: data.designItemId,
+          createdAt: new Date().toISOString()
+        };
+
+        // Update comments state
+        setComments(prevComments => ({
+          ...prevComments,
+          [data.designItemId]: [...(prevComments[data.designItemId] || []), newComment]
+        }));
+
+        // Update annotation drawings if it has drawing data
+        if (data.hasDrawing && data.drawingData) {
+          setAnnotationDrawings(prev => ({
+            ...prev,
+            [data.commentId]: data.drawingData
+          }));
+        }
+
+        // Show notification for new comment
+        toast.success(`New ${data.type} from ${data.author}`, {
+          duration: 3000,
+          icon: data.hasDrawing ? '🎨' : '💬'
+        });
+      });
+
+      // Listen for status updates
+      socket.on('status-updated', (data) => {
+        console.log('Status updated via socket:', data);
+        setReviewStatus(data.status);
+        
+        if (data.status === 'APPROVED') {
+          toast.success('🎉 Project has been approved!', {
+            duration: 5000,
+            icon: '✅'
+          });
+        } else if (data.status === 'REVISION_REQUESTED') {
+          toast('📝 Revision requested. Please review the feedback.', {
+            duration: 5000,
+            icon: '📝'
+          });
+        }
+      });
+
+      // Cleanup listeners on unmount
+      return () => {
+        socket.off('comment-added');
+        socket.off('status-updated');
+      };
+    }
+  }, [socket, isConnected, reviewId]);
 
   // Check for author name and show welcome modal if needed
   useEffect(() => {
@@ -164,62 +290,90 @@ export function DesignViewer({
       }
     }
 
-    const commentId = Date.now();
-    const newComment: Comment = {
-      id: commentId,
-      author: authorName,
-      content: newCommentText,
-      timestamp: new Date(),
-      type: isAddingAnnotation ? "annotation" : "comment",
-      hasDrawing: hasDrawing,
-      drawingData: drawingData,
-    };
+    try {
+      // Save to database via API
+      const response = await fetch('/api/comments', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          designItemId: selectedItem.id,
+          author: authorName,
+          content: newCommentText,
+          type: isAddingAnnotation ? "annotation" : "comment",
+          drawingData: drawingData || null
+        }),
+      });
 
-    // Save to state
-    setComments({
-      ...comments,
-      [selectedItem.id]: [...itemComments, newComment],
-    });
+      if (response.ok) {
+        const savedComment = await response.json();
+        
+        // Convert to component format
+        const newComment: Comment = {
+          id: savedComment.id,
+          author: savedComment.author,
+          content: savedComment.content,
+          timestamp: new Date(savedComment.createdAt),
+          type: savedComment.type,
+          hasDrawing: !!savedComment.drawingData,
+          drawingData: savedComment.drawingData,
+          designItemId: savedComment.designItemId,
+          createdAt: savedComment.createdAt
+        };
 
-    // Save to localStorage
-    const storedComment: StoredComment = {
-      id: commentId,
-      author: authorName,
-      content: newCommentText,
-      timestamp: new Date().toISOString(),
-      type: isAddingAnnotation ? "annotation" : "comment",
-      hasDrawing: hasDrawing,
-      drawingData: drawingData,
-      reviewId: reviewId,
-      fileId: selectedItem.id,
-    };
-    saveComment(storedComment);
+        // Update state
+        setComments({
+          ...comments,
+          [selectedItem.id]: [...itemComments, newComment],
+        });
+
+        // Store drawing separately for overlay display
+        if (drawingData) {
+          setAnnotationDrawings({
+            ...annotationDrawings,
+            [savedComment.id]: drawingData,
+          });
+        }
+
+        setNewCommentText("");
+        setIsAddingAnnotation(false);
+        setAnnotationMode(false);
+
+        // Emit socket event for real-time updates
+        if (socket && isConnected) {
+          socket.emit('new-comment', {
+            reviewId: reviewId,
+            commentId: savedComment.id,
+            author: savedComment.author,
+            content: savedComment.content,
+            type: savedComment.type,
+            designItemId: savedComment.designItemId,
+            hasDrawing: hasDrawing,
+            drawingData: drawingData || null
+          });
+        }
+
+        if (hasDrawing) {
+          alert("✅ Annotation with drawing saved successfully!");
+          // Clear canvas after submit
+          if (canvasRef.current) {
+            canvasRef.current.clearCanvas();
+          }
+        } else {
+          alert("✅ Comment saved successfully!");
+        }
+      } else {
+        throw new Error('Failed to save comment');
+      }
+    } catch (error) {
+      console.error('Error saving comment:', error);
+      alert("❌ Failed to save comment. Please try again.");
+    }
 
     // Save author name for future use
     if (typeof window !== "undefined") {
       localStorage.setItem("client_proofing_author_name", authorName);
-    }
-
-    // Store drawing separately for overlay display
-    if (drawingData) {
-      setAnnotationDrawings({
-        ...annotationDrawings,
-        [commentId]: drawingData,
-      });
-    }
-
-    setNewCommentText("");
-    setIsAddingAnnotation(false);
-    setAnnotationMode(false);
-
-    if (hasDrawing) {
-      alert("✅ Annotation with drawing saved successfully!");
-      // Clear canvas after submit
-      if (canvasRef.current) {
-        canvasRef.current.clearCanvas();
-      }
-    } else {
-      alert("✅ Comment saved successfully!");
     }
   };
 
@@ -259,8 +413,77 @@ export function DesignViewer({
     return `${days} days ago`;
   };
 
+  const copyFileUrl = async () => {
+    const fileUrl = selectedItem.url || selectedItem.file_url;
+    if (!fileUrl) return;
+    
+    const fullUrl = typeof window !== 'undefined' ? `${window.location.origin}${fileUrl}` : fileUrl;
+    
+    try {
+      await navigator.clipboard.writeText(fullUrl);
+      setCopiedUrl(true);
+      setTimeout(() => setCopiedUrl(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy URL:', err);
+    }
+  };
+
+  const updateReviewStatus = async (status: 'APPROVED' | 'REVISION_REQUESTED') => {
+    setIsUpdatingStatus(true);
+    try {
+      const response = await fetch(`/api/reviews/${reviewId}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ status }),
+      });
+
+      if (response.ok) {
+        setReviewStatus(status);
+        
+        // Emit socket event for real-time updates
+        if (socket && isConnected) {
+          socket.emit('update-status', {
+            reviewId: reviewId,
+            status: status,
+            updatedBy: authorName || 'Admin'
+          });
+        }
+
+        if (status === 'APPROVED') {
+          alert('🎉 Project approved successfully!');
+        } else {
+          alert('📝 Revision requested successfully!');
+        }
+      } else {
+        throw new Error('Failed to update status');
+      }
+    } catch (error) {
+      console.error('Error updating review status:', error);
+      alert('❌ Failed to update status. Please try again.');
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  };
+
   return (
     <div className="h-full flex flex-col bg-[#1a1a1a]">
+      {/* Connection Status */}
+      <div className="px-4 py-2 bg-neutral-900 border-b border-neutral-800">
+        <div className="flex items-center justify-between text-sm">
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+            <span className="text-neutral-400">
+              {isConnected ? 'Connected to server' : 'Disconnected from server'}
+            </span>
+          </div>
+          <div className="text-neutral-500">
+            Real-time updates {isConnected ? 'enabled' : 'disabled'}
+          </div>
+        </div>
+      </div>
+
       {/* Thumbnails Row with Buttons */}
       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between p-4 lg:p-6 bg-[#1a1a1a] gap-4 lg:gap-0">
         {/* Thumbnails */}
@@ -279,29 +502,54 @@ export function DesignViewer({
                 }`}
               >
                 <Image
-                  src={item.file_url || "/placeholder.svg"}
-                  alt={item.file_name}
+                  src={item.url || item.file_url || "/placeholder.svg"}
+                  alt={item.name || item.file_name || "Design file"}
                   width={128}
                   height={80}
                   className="w-full h-full object-cover"
                 />
               </button>
               <span className="text-xs lg:text-sm text-white text-center max-w-24 lg:max-w-none">
-                {item.file_name}
+                {item.name || item.file_name || "Design File"}
               </span>
             </div>
           ))}
         </div>
+    
 
         {/* Action Buttons - Conditionally render based on hideApprovalButtons prop */}
         {!hideApprovalButtons && (
-          <div className="flex flex-row lg:flex-col gap-3 lg:min-w-[280px] w-full lg:w-auto">
-            <button className="flex-1 lg:w-full px-4 lg:px-6 py-2.5 lg:py-3.5 bg-transparent border-2 border-[#fdb913] text-[#fdb913] font-bold rounded hover:bg-[#fdb913] hover:text-black transition-all uppercase tracking-wide text-xs lg:text-sm">
-              Approve Project
-            </button>
-            <button className="flex-1 lg:w-full px-4 lg:px-6 py-2.5 lg:py-3.5 bg-transparent border-2 border-white text-white font-bold rounded hover:bg-white hover:text-black transition-all uppercase tracking-wide text-xs lg:text-sm">
-              Request Revisions
-            </button>
+          <div className="flex flex-col gap-4 lg:min-w-[280px] w-full lg:w-auto">
+            {/* Status Display */}
+            <div className="text-center">
+              <div className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold ${
+                reviewStatus === 'APPROVED' 
+                  ? 'bg-green-500/20 text-green-400 border border-green-500/30' 
+                  : reviewStatus === 'REVISION_REQUESTED'
+                  ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
+                  : 'bg-neutral-500/20 text-neutral-400 border border-neutral-500/30'
+              }`}>
+                Status: {reviewStatus === 'APPROVED' ? '✅ APPROVED' : reviewStatus === 'REVISION_REQUESTED' ? '📝 REVISION REQUESTED' : '⏳ PENDING'}
+              </div>
+            </div>
+            
+            {/* Action Buttons */}
+            <div className="flex flex-row lg:flex-col gap-3">
+              <button 
+                onClick={() => updateReviewStatus('APPROVED')}
+                disabled={isUpdatingStatus || reviewStatus === 'APPROVED'}
+                className="flex-1 lg:w-full px-4 lg:px-6 py-2.5 lg:py-3.5 bg-transparent border-2 border-green-500 text-green-500 font-bold rounded hover:bg-green-500 hover:text-black transition-all uppercase tracking-wide text-xs lg:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isUpdatingStatus ? 'Updating...' : 'Approve Project'}
+              </button>
+              <button 
+                onClick={() => updateReviewStatus('REVISION_REQUESTED')}
+                disabled={isUpdatingStatus || reviewStatus === 'REVISION_REQUESTED'}
+                className="flex-1 lg:w-full px-4 lg:px-6 py-2.5 lg:py-3.5 bg-transparent border-2 border-yellow-500 text-yellow-500 font-bold rounded hover:bg-yellow-500 hover:text-black transition-all uppercase tracking-wide text-xs lg:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isUpdatingStatus ? 'Updating...' : 'Request Revisions'}
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -312,8 +560,8 @@ export function DesignViewer({
         <div className="flex-1 bg-black flex items-center justify-center p-2 lg:p-4 overflow-hidden relative min-h-0">
           <div className="relative w-full h-full flex items-center justify-center">
             <Image
-              src={selectedItem.file_url || "/placeholder.svg"}
-              alt={selectedItem.file_name}
+              src={selectedItem.url || selectedItem.file_url || "/placeholder.svg"}
+              alt={selectedItem.name || selectedItem.file_name || "Design file"}
               width={800}
               height={600}
               className="h-[300px] lg:h-[600px] w-auto object-contain max-w-full"

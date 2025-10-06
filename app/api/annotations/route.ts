@@ -1,54 +1,49 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from 'next/server'
+import { prisma } from '@/lib/db'
 
-// Mock annotations storage (in production, this would be in database)
-const mockAnnotations: any[] = []
-
-export async function GET(request: Request) {
+// GET - Fetch annotations for a specific file
+export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
-    const fileId = searchParams.get("fileId")
+    const designItemId = searchParams.get('designItemId')
 
-    if (fileId) {
-      const annotations = mockAnnotations.filter((a) => a.file_id === parseInt(fileId))
-      return NextResponse.json(annotations)
+    if (!designItemId) {
+      return NextResponse.json({ error: "Design item ID is required" }, { status: 400 })
     }
 
-    return NextResponse.json(mockAnnotations)
+    const annotations = await prisma.annotation.findMany({
+      where: { designItemId: parseInt(designItemId) },
+      orderBy: { createdAt: 'asc' }
+    })
+
+    return NextResponse.json(annotations)
   } catch (error) {
-    console.error("Error fetching annotations:", error)
+    console.error('Error fetching annotations:', error)
     return NextResponse.json({ error: "Failed to fetch annotations" }, { status: 500 })
   }
 }
 
-export async function POST(request: Request) {
+// POST - Create a new annotation
+export async function POST(request: NextRequest) {
   try {
-    const data = await request.json()
-    
-    const annotation = {
-      id: mockAnnotations.length + 1,
-      file_id: data.fileId,
-      x: data.x,
-      y: data.y,
-      type: data.type,
-      color: data.color,
-      content: data.content,
-      author: data.author,
-      status: "open",
-      created_at: new Date(),
-      updated_at: new Date(),
+    const { designItemId, xPosition, yPosition, content } = await request.json()
+
+    if (!designItemId || xPosition === undefined || yPosition === undefined || !content) {
+      return NextResponse.json({ error: "Design item ID, position, and content are required" }, { status: 400 })
     }
-    
-    mockAnnotations.push(annotation)
-    
-    console.log("[Static Mode] Annotation created:", annotation)
-    
-    // In production, you would emit a socket event here:
-    // io.to(`file_${data.fileId}`).emit('annotation_added', annotation)
-    
+
+    const annotation = await prisma.annotation.create({
+      data: {
+        designItemId: parseInt(designItemId),
+        xPosition: parseFloat(xPosition),
+        yPosition: parseFloat(yPosition),
+        content
+      }
+    })
+
     return NextResponse.json(annotation)
   } catch (error) {
-    console.error("Error creating annotation:", error)
+    console.error('Error creating annotation:', error)
     return NextResponse.json({ error: "Failed to create annotation" }, { status: 500 })
   }
 }
-

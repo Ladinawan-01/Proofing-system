@@ -3,6 +3,9 @@ import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import "./globals.css"
 import Footer from "@/components/footer"
+import { LogoProvider } from "@/contexts/LogoContext"
+import { SocketProvider } from "@/contexts/SocketContext"
+import { Toaster } from "@/components/ui/toaster"
 
 const inter = Inter({
   subsets: ["latin"],
@@ -23,8 +26,13 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} antialiased`}>
       <body className="bg-neutral-950 text-white min-h-screen flex flex-col">
-        <main className="flex-1">{children}</main>
-        <Footer />
+        <LogoProvider>
+          <SocketProvider>
+            <main className="flex-1">{children}</main>
+            <Footer />
+            <Toaster />
+          </SocketProvider>
+        </LogoProvider>
       </body>
     </html>
   )

@@ -1,0 +1,41 @@
+# Cursor Rules for Proofing System
+
+## Database Configuration
+- **ALWAYS use this PostgreSQL connection string**: `postgresql://neondb_owner:npg_ft6DHlhFMQU5@ep-raspy-night-ad4utwoj-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require`
+- **NEVER use Prisma Studio** or any GUI database tools
+- **ALWAYS use Prisma CLI** for database operations
+- Store connection string in `DATABASE_URL` environment variable
+
+## Database Operations
+- Use `npx prisma migrate dev` for schema changes
+- Use `npx prisma generate` to update Prisma client
+- Use `npx prisma db push` for quick schema updates
+- Use `npx prisma db seed` to run seed scripts
+- **NEVER use Prisma Studio** for database management
+
+## API Development
+- All APIs must use the same Prisma client instance from `lib/db.ts`
+- Use database query helpers from `lib/db.ts` instead of direct Prisma calls
+- Ensure consistent database connections across all API endpoints
+
+## Environment Variables
+- `DATABASE_URL`: The PostgreSQL connection string above
+- `JWT_SECRET`: Secret key for JWT authentication
+
+## Project Structure
+- Keep database models in `prisma/schema.prisma`
+- Keep migrations in `prisma/migrations/`
+- Keep database helpers in `lib/db.ts`
+- Use TypeScript for all database operations
+
+## Prohibited Actions
+- **NEVER use Prisma Studio** (`npx prisma studio`)
+- **NEVER use Neon Studio** or other GUI database tools
+- **NEVER hardcode database connection strings** in source code
+- **NEVER mix different database drivers** - use only Prisma
+
+## Required Actions
+- Always use the specified PostgreSQL connection string
+- Always use Prisma as the single ORM
+- Always use environment variables for database configuration
+- Always use the database query helpers from `lib/db.ts`

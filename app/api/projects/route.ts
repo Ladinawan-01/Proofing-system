@@ -30,10 +30,10 @@ export async function POST(request: Request) {
       projectId: project.id,
       userName: "Admin",
       action: "PROJECT_CREATED",
-      details: `Created project ${project.project_number}`,
+      details: `Created project ${project.projectNumber}`,
     })
     
-    console.log("[Static Mode] Project created:", project)
+    console.log("Project created:", project)
     return NextResponse.json(project)
   } catch (error) {
     console.error("Error creating project:", error)

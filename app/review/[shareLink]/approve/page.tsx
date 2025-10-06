@@ -1,8 +1,8 @@
 import { notFound } from "next/navigation"
 import Link from "next/link"
-import Image from "next/image"
 import { getReviewByShareLink, getDesignItemsByReviewId } from "@/lib/db"
 import { CopyLinkButton } from "@/components/copy-link-button"
+import LogoImage from "@/components/LogoImage"
 
 export default async function ClientApprovePage({
   params,
@@ -23,9 +23,7 @@ export default async function ClientApprovePage({
       <header className="bg-[#111111] border-b border-neutral-800">
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
-            <Image
-              src="/images/nsb-logo.png"
-              alt="Newstate Branding Co."
+            <LogoImage 
               width={180}
               height={50}
               className="h-10 w-auto"

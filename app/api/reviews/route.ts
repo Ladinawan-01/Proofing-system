@@ -1,6 +1,23 @@
 import { NextResponse } from "next/server"
-import { createReview, createActivityLog } from "@/lib/db"
+import { createReview, createActivityLog, getReviewsByProjectId } from "@/lib/db"
 import { nanoid } from "nanoid"
+
+export async function GET(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url)
+    const projectId = searchParams.get('projectId')
+    
+    if (!projectId) {
+      return NextResponse.json({ error: "Project ID is required" }, { status: 400 })
+    }
+    
+    const reviews = await getReviewsByProjectId(parseInt(projectId))
+    return NextResponse.json(reviews)
+  } catch (error) {
+    console.error("Error fetching reviews:", error)
+    return NextResponse.json({ error: "Failed to fetch reviews" }, { status: 500 })
+  }
+}
 
 export async function POST(request: Request) {
   try {
@@ -16,7 +33,7 @@ export async function POST(request: Request) {
       details: `Created review ${shareLink}`,
     })
     
-    console.log("[Static Mode] Review created:", review)
+    console.log("Review created:", review)
     
     // In production, you would emit a socket event here:
     // io.to(`project_${projectId}`).emit('review_created', review)

@@ -1,142 +1,267 @@
-import Link from "next/link"
-import Image from "next/image"
-import { notFound } from "next/navigation"
-import { Upload, Settings } from "lucide-react"
-import { getProjectById, getReviewsByProjectId, getDesignItemsByReviewId } from "@/lib/db"
-import { CopyLinkButton } from "@/components/copy-link-button"
+'use client'
 
-export default async function EditProjectPage({
-  params,
-}: {
-  params: { id: string }
-}) {
-  const projectId = parseInt(params.id)
-  const project = await getProjectById(projectId)
+import { useState, useEffect } from 'react'
+import { useRouter, useParams } from 'next/navigation'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { Switch } from '@/components/ui/switch'
+import AdminLayout from '../../../components/AdminLayout'
+import { Save, ArrowLeft, Loader2 } from 'lucide-react'
+import toast from 'react-hot-toast'
 
-  if (!project) {
-    notFound()
+export default function EditProjectPage() {
+  const router = useRouter()
+  const params = useParams()
+  const projectId = params.id as string
+  
+  const [formData, setFormData] = useState({
+    projectNumber: "",
+    name: "",
+    description: "",
+    clientEmail: "",
+    downloadEnabled: false,
+    archived: false,
+  })
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState("")
+
+  useEffect(() => {
+    if (projectId) {
+      loadProject()
+    }
+  }, [projectId])
+
+  const loadProject = async () => {
+    try {
+      const response = await fetch(`/api/projects/${projectId}`)
+      if (response.ok) {
+        const project = await response.json()
+        setFormData({
+          projectNumber: project.projectNumber || "",
+          name: project.name || "",
+          description: project.description || "",
+          clientEmail: project.clientEmail || "",
+          downloadEnabled: project.downloadEnabled || false,
+          archived: project.archived || false,
+        })
+      } else {
+        setError("Project not found")
+      }
+    } catch (error) {
+      console.error("Error loading project:", error)
+      setError("Failed to load project")
+    } finally {
+      setIsLoading(false)
+    }
   }
 
-  const reviews = await getReviewsByProjectId(projectId)
-  const allDesignItems = []
-  
-  for (const review of reviews) {
-    const items = await getDesignItemsByReviewId(review.id)
-    allDesignItems.push(...items)
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setIsSubmitting(true)
+    setError("")
+
+    try {
+      const response = await fetch(`/api/projects/${projectId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+      })
+
+      if (response.ok) {
+        toast.success('Project updated successfully!')
+        router.push(`/admin/projects`)
+      } else {
+        const errorData = await response.json()
+        setError(errorData.error || "Failed to update project")
+        toast.error(errorData.error || "Failed to update project")
+      }
+    } catch (error) {
+      console.error("Error updating project:", error)
+      setError("Network error. Please try again.")
+      toast.error("Network error. Please try again.")
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <AdminLayout title="Edit Project" description="Update project details" icon={<Save className="h-8 w-8 text-brand-yellow" />}>
+        <div className="flex items-center justify-center py-12">
+          <div className="text-center">
+            <Loader2 className="h-8 w-8 animate-spin text-brand-yellow mx-auto mb-4" />
+            <p className="text-neutral-400">Loading project...</p>
+          </div>
+        </div>
+      </AdminLayout>
+    )
   }
 
   return (
-    <div className="min-h-screen bg-[#0f0f0f]">
-      {/* Header */}
-      <header className="bg-[#111111] border-b border-neutral-800">
-        <div className="container mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <Link href="/admin/dashboard">
-              <Image
-                src="/images/nsb-logo.png"
-                alt="Newstate Branding Co."
-                width={180}
-                height={50}
-                className="h-10 w-auto"
-              />
-            </Link>
-
-            <nav className="flex items-center gap-6 text-sm">
-              <Link href="/admin/dashboard" className="text-white hover:text-brand-yellow transition-colors">
-                DASHBOARD
-              </Link>
-              <span className="text-neutral-600">|</span>
-              <Link href="/admin/new-project" className="text-neutral-400 hover:text-brand-yellow transition-colors">
-                ADD NEW PROJECT
-              </Link>
-              <span className="text-neutral-600">|</span>
-              <Link href="/admin/archives" className="text-neutral-400 hover:text-brand-yellow transition-colors">
-                PROJECT ARCHIVES
-              </Link>
-            </nav>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="container mx-auto px-6 py-8">
-        {/* Project Name Section */}
+    <AdminLayout title="Edit Project" description="Update project details" icon={<Save className="h-8 w-8 text-brand-yellow" />}>
+      <div className="container mx-auto px-6 py-8 max-w-4xl">
+        {/* Page Header */}
         <div className="mb-8">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex-1">
-              <div className="flex items-start gap-3 mb-4">
-                <span className="text-neutral-500 mt-2">✏️</span>
-                <input
-                  type="text"
-                  defaultValue={project.name.toUpperCase()}
-                  placeholder="NAME PROJECT"
-                  className="text-4xl font-bold text-white bg-transparent border-none outline-none w-full placeholder:text-neutral-700 uppercase tracking-wide"
-                />
-              </div>
-              <div className="flex items-start gap-3">
-                <span className="text-neutral-500 mt-1">✏️</span>
-                <input
-                  type="text"
-                  defaultValue={project.description}
-                  placeholder="Add project description or message to clients."
-                  className="text-base text-neutral-400 bg-transparent border-none outline-none w-full placeholder:text-neutral-700"
-                />
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              <button className="flex items-center gap-2 px-4 py-2 bg-neutral-800 text-white rounded hover:bg-neutral-700 transition-colors text-sm">
-                📥 Download
-              </button>
-              {reviews.length > 0 && (
-                <CopyLinkButton shareLink={reviews[0].share_link} showUrl />
-              )}
-              <button className="flex items-center gap-2 px-6 py-2.5 bg-transparent border-2 border-[#fdb913] text-[#fdb913] font-bold rounded hover:bg-[#fdb913] hover:text-black transition-all uppercase tracking-wide text-sm">
-                <Settings className="w-4 h-4" />
-                Edit Project
-              </button>
-            </div>
-          </div>
+          <Button 
+            variant="outline" 
+            onClick={() => router.push('/admin/projects')}
+            className="mb-4 border-neutral-600 text-neutral-300 hover:bg-neutral-800 hover:text-brand-yellow bg-neutral-900"
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back to Projects
+          </Button>
+          <h1 className="text-3xl font-bold text-white mb-2">Edit Project</h1>
+          <p className="text-neutral-400">Update project information and settings</p>
         </div>
 
-        {/* Upload Section */}
-        <div className="bg-[#1a1d26] rounded-lg border-2 border-dashed border-neutral-700 p-12 mb-8">
-          <div className="text-center">
-            <p className="text-neutral-400 mb-4">
-              <span className="font-semibold">Drag & drop</span> some files from your computer or hit the button below
-            </p>
-            <button className="inline-flex items-center gap-2 px-8 py-3 bg-[#fdb913] text-black font-bold rounded hover:bg-[#e5a711] transition-all uppercase tracking-wide">
-              <Upload className="w-5 h-5" />
-              Upload
-            </button>
-          </div>
-        </div>
+        {/* Form */}
+        <Card className="bg-neutral-900 border-neutral-800 hover:border-brand-yellow/30 transition-colors">
+          <CardHeader>
+            <CardTitle className="text-white text-xl">Project Details</CardTitle>
+            <CardDescription className="text-neutral-400">
+              Update the project information below. All fields marked with * are required.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {error && (
+              <div className="mb-6 p-4 bg-red-900/30 border border-red-800 rounded-lg">
+                <p className="text-red-300 text-sm">{error}</p>
+              </div>
+            )}
 
-        {/* Design Items Grid */}
-        {allDesignItems.length > 0 && (
-          <div className="grid grid-cols-4 gap-6">
-            {allDesignItems.map((item) => (
-              <div
-                key={item.id}
-                className="aspect-square bg-neutral-900 rounded-lg overflow-hidden border border-neutral-800 hover:border-brand-yellow transition-all group relative"
-              >
-                <Image
-                  src={item.file_url || "/placeholder.svg"}
-                  alt={item.file_name}
-                  width={300}
-                  height={300}
-                  className="w-full h-full object-cover"
-                />
-                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black to-transparent p-4">
-                  <p className="text-white text-sm font-semibold truncate">
-                    {item.file_name}
-                  </p>
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <Label htmlFor="projectNumber" className="text-neutral-300">
+                    Project Number *
+                  </Label>
+                  <Input
+                    id="projectNumber"
+                    type="text"
+                    required
+                    value={formData.projectNumber}
+                    onChange={(e) => setFormData({ ...formData, projectNumber: e.target.value })}
+                    placeholder="e.g., 16994"
+                    className="bg-neutral-800 border-neutral-700 text-white placeholder-neutral-400 focus:border-brand-yellow focus:ring-brand-yellow/20"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="name" className="text-neutral-300">
+                    Project Name *
+                  </Label>
+                  <Input
+                    id="name"
+                    type="text"
+                    required
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    placeholder="e.g., Atlantic Spa"
+                    className="bg-neutral-800 border-neutral-700 text-white placeholder-neutral-400 focus:border-brand-yellow focus:ring-brand-yellow/20"
+                  />
                 </div>
               </div>
-            ))}
-          </div>
-        )}
-      </main>
-    </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="description" className="text-neutral-300">
+                  Description / Message to Client
+                </Label>
+                <Textarea
+                  id="description"
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  placeholder="Add any notes or instructions for the client..."
+                  rows={4}
+                  className="bg-neutral-800 border-neutral-700 text-white placeholder-neutral-400 focus:border-brand-yellow focus:ring-brand-yellow/20 resize-none"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="clientEmail" className="text-neutral-300">
+                  Client Email (Optional)
+                </Label>
+                <Input
+                  id="clientEmail"
+                  type="email"
+                  value={formData.clientEmail}
+                  onChange={(e) => setFormData({ ...formData, clientEmail: e.target.value })}
+                  placeholder="client@example.com"
+                  className="bg-neutral-800 border-neutral-700 text-white placeholder-neutral-400 focus:border-brand-yellow focus:ring-brand-yellow/20"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <Label htmlFor="downloadEnabled" className="text-neutral-300">
+                    Download Enabled
+                  </Label>
+                  <div className="flex items-center space-x-3">
+                    <Switch
+                      id="downloadEnabled"
+                      checked={formData.downloadEnabled}
+                      onCheckedChange={(checked) => setFormData({ ...formData, downloadEnabled: checked })}
+                      className="data-[state=checked]:bg-brand-yellow"
+                    />
+                    <span className="text-sm text-neutral-400">
+                      {formData.downloadEnabled ? 'Clients can download files' : 'Download disabled for clients'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="archived" className="text-neutral-300">
+                    Archive Project
+                  </Label>
+                  <div className="flex items-center space-x-3">
+                    <Switch
+                      id="archived"
+                      checked={formData.archived}
+                      onCheckedChange={(checked) => setFormData({ ...formData, archived: checked })}
+                      className="data-[state=checked]:bg-red-500"
+                    />
+                    <span className="text-sm text-neutral-400">
+                      {formData.archived ? 'Project is archived' : 'Project is active'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-4 pt-6">
+                <Button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="bg-brand-yellow hover:bg-brand-yellow/90 text-black font-semibold px-8"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      Updating...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-4 w-4 mr-2" />
+                      Update Project
+                    </>
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => router.push('/admin/projects')}
+                  disabled={isSubmitting}
+                  className="border-neutral-600 text-neutral-300 hover:bg-neutral-800 hover:text-white bg-neutral-900"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+    </AdminLayout>
   )
 }
-
